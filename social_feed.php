@@ -8,7 +8,7 @@ Author: Tom Skroza
 Author URI: 
 License: GPL2
 */
-
+require_once("facebook-php-sdk/src/facebook.php");
 function social_feed_activate() {
   add_option( "mm_facebook_id", "", "", "yes" );
   add_option( "mm_facebook_appid", "", "", "yes" );
@@ -61,6 +61,8 @@ function register_social_feed_settings() {
 	register_setting( 'social-feed-group', 'mm_blog_rss_feed_chars_per_post' );
 	register_setting( 'social-feed-group', 'mm_blog_rss_feed_max_posts' );
 	register_setting( 'social-feed-group', 'mm_social_css' );
+	register_setting( 'social-feed-group', 'mm_last_date_cached');
+	register_setting( 'social-feed-group', 'mm_facebook_recent_cached');
 }
 
 function social_feed_settings_page() {
@@ -435,104 +437,116 @@ function most_recent_blog_feed() {
 
 
 function most_recent_facebook_feed() {
-	require_once("facebook-php-sdk/src/facebook.php");
-	$config = array();
-	$config['appId'] = get_option("mm_facebook_appid");
-	$config['secret'] = get_option("mm_facebook_secret");
-  $config['fileUpload'] = false; // optional
 
-  $facebook = new Facebook($config);
+	if (get_option("mm_last_date_cached") != date("d/m/y")) {
+		$config = array();
+		$config['appId'] = get_option("mm_facebook_appid");
+		$config['secret'] = get_option("mm_facebook_secret");
+	  $config['fileUpload'] = false; // optional
 
-  //echo $facebook->getAccessToken();
-  //344617158898614|6dc8ac871858b34798bc2488200e503d
-	// jSON URL which should be requested
+	  $facebook = new Facebook($config);
 
-	$json_url = "https://graph.facebook.com/".get_option("mm_facebook_id")."/feed?access_token=".urldecode($facebook->getAccessToken());
-	// Initializing curl
-	$ch = curl_init( $json_url );
-	 
-	// Configuring curl options
-	$userAgent = "Firefox (WindowsXP) - Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
-	$options = array(
-	CURLOPT_RETURNTRANSFER => true,
-	CURLOPT_SSL_VERIFYPEER, false,
-	CURLOPT_HTTPHEADER => array('Content-type: application/json'),
-	CURLOPT_USERAGENT => $userAgent,
-	CURLOPT_URL => $json_url,
-	CURLOPT_FAILONERROR => true,
-	CURLOPT_FOLLOWLOCATION => true,
-	CURLOPT_AUTOREFERER => true,
-	CURLOPT_RETURNTRANSFER => true,
-	CURLOPT_VERBOSE => false,    
-  CURLOPT_RETURNTRANSFER => 1
-	);
+	  //echo $facebook->getAccessToken();
+	  //344617158898614|6dc8ac871858b34798bc2488200e503d
+		// jSON URL which should be requested
 
-	// Setting curl options
-	curl_setopt_array( $ch, $options );
-	 
-	// Getting results
-	$result =  curl_exec($ch); // Getting jSON result string
-
-	$obj = json_decode($result);
-
-	$fb_feed_content = "";
-	$caption = "";
-
-	$data_feed = $obj->{'data'}[0];
-
-	if ($data_feed->{'type'} != "") {
-		$message = "";
-
-		if ($data_feed->{'type'} == "link") {
-			$message = $data_feed->{'message'};
-			$caption = $data_feed->{'caption'};
-		}
-		if ($data_feed->{'type'} == "photo" || $data_feed->{'type'} == "status") {
-			$message = $data_feed->{'story'};
-		}
-
-		$fb_feed_content .= "<li><img src='".get_option('mm_facebook_img_profile_url')."'/>".facebookReplaceURLWithHTMLLinks(facebook_TokenTruncate($message, get_option('mm_facebook_chars_per_post')), $caption)." <a target='_blank' href='".get_option('mm_facebook_page')."'>...</a></li>";
-
-		$comments = "";
-		if ($data_feed->{'comments'}->{'count'} <> "0") {
-			$username = $data_feed->{'comments'}->{'data'}[0]->{'from'}->{'name'};
-				$username = str_replace(" ", ".", $username);
-				$comments = "<ul><li><img src='http://graph.facebook.com/".$username."/picture'/>".facebook_TokenTruncate($data_feed->{'comments'}->{'data'}[0]->{'message'}, get_option('mm_facebook_chars_per_comment'))."</li></ul>";
-		}  
-  	echo "<ul>".$fb_feed_content."</ul>";
-  } else {
-		//facebook feed url
-    $url="http://www.facebook.com/feeds/page.php?id=".get_option("mm_facebook_id")."&format=atom10";
-    
-    //load and setup CURL
-    $c = curl_init();
-    
-    //set options and make it up to look like firefox
+		$json_url = "https://graph.facebook.com/".get_option("mm_facebook_id")."/feed?access_token=".urldecode($facebook->getAccessToken());
+		// Initializing curl
+		$ch = curl_init( $json_url );
+		 
+		// Configuring curl options
 		$userAgent = "Firefox (WindowsXP) - Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
-		curl_setopt($c, CURLOPT_USERAGENT, $userAgent);
-		curl_setopt($c, CURLOPT_URL,$url);
-		curl_setopt($c, CURLOPT_FAILONERROR, true);
-		curl_setopt($c, CURLOPT_FOLLOWLOCATION, true);
-		curl_setopt($c, CURLOPT_AUTOREFERER, true);
-		curl_setopt($c, CURLOPT_RETURNTRANSFER,true);
-		curl_setopt($c, CURLOPT_VERBOSE, false);     
-    curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
-    
-    //get data from facebook and decode XML
-    $page = curl_exec($c);
-    $pxml= new SimpleXMLElement($page);
+		$options = array(
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_SSL_VERIFYPEER, false,
+		CURLOPT_HTTPHEADER => array('Content-type: application/json'),
+		CURLOPT_USERAGENT => $userAgent,
+		CURLOPT_URL => $json_url,
+		CURLOPT_FAILONERROR => true,
+		CURLOPT_FOLLOWLOCATION => true,
+		CURLOPT_AUTOREFERER => true,
+		CURLOPT_RETURNTRANSFER => true,
+		CURLOPT_VERBOSE => false,    
+	  CURLOPT_RETURNTRANSFER => 1
+		);
 
-    //close the connection
-    curl_close($c);
+		// Setting curl options
+		curl_setopt_array( $ch, $options );
+		 
+		// Getting results
+		$result =  curl_exec($ch); // Getting jSON result string
 
-    $myPosts = $pxml->entry;
-    $fb_feed_content = "";
-    
-    $fb_feed_content .= "<li><a target='_blank' href='".get_option("mm_facebook_page")."'><img src='".get_option('mm_facebook_img_profile_url')."'/></a>".facebookReplaceURLWithHTMLLinks(facebook_TokenTruncate($myPosts->content, get_option('mm_facebook_chars_per_post')), $caption)." <a target='_blank' href='".get_option('mm_facebook_page')."'>...</a></li>";
-    
+		$obj = json_decode($result);
 
-		echo "<ul>".$fb_feed_content.$comments."</ul>";
-  }
+		$fb_feed_content = "";
+		$caption = "";
+
+		$data_feed = $obj->{'data'}[0];
+
+		if ($data_feed->{'type'} != "") {
+			$message = "";
+
+			if ($data_feed->{'type'} == "link") {
+				$message = $data_feed->{'message'};
+				$caption = $data_feed->{'caption'};
+			}
+			if ($data_feed->{'type'} == "photo" || $data_feed->{'type'} == "status") {
+				$message = $data_feed->{'story'};
+			}
+
+			$fb_feed_content .= "<li><img src='".get_option('mm_facebook_img_profile_url')."'/>".facebookReplaceURLWithHTMLLinks(facebook_TokenTruncate($message, get_option('mm_facebook_chars_per_post')), $caption)." <a target='_blank' href='".get_option('mm_facebook_page')."'>...</a></li>";
+
+			$comments = "";
+			if ($data_feed->{'comments'}->{'count'} <> "0") {
+				$username = $data_feed->{'comments'}->{'data'}[0]->{'from'}->{'name'};
+					$username = str_replace(" ", ".", $username);
+					$comments = "<ul><li><img src='http://graph.facebook.com/".$username."/picture'/>".facebook_TokenTruncate($data_feed->{'comments'}->{'data'}[0]->{'message'}, get_option('mm_facebook_chars_per_comment'))."</li></ul>";
+			}  
+	  	echo "<ul>".$fb_feed_content."</ul>";
+	  	update_option("mm_facebook_recent_cached", "<ul>".$fb_feed_content."</ul>");
+			update_option("mm_last_date_cached", date("d/m/y"));
+	  } else {
+			//facebook feed url
+	    $url="http://www.facebook.com/feeds/page.php?id=".get_option("mm_facebook_id")."&format=atom10";
+	    
+	    //load and setup CURL
+	    $c = curl_init();
+	    
+	    //set options and make it up to look like firefox
+			$userAgent = "Firefox (WindowsXP) - Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
+			curl_setopt($c, CURLOPT_USERAGENT, $userAgent);
+			curl_setopt($c, CURLOPT_URL,$url);
+			curl_setopt($c, CURLOPT_FAILONERROR, true);
+			curl_setopt($c, CURLOPT_FOLLOWLOCATION, true);
+			curl_setopt($c, CURLOPT_AUTOREFERER, true);
+			curl_setopt($c, CURLOPT_RETURNTRANSFER,true);
+			curl_setopt($c, CURLOPT_VERBOSE, false);     
+	    curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
+	    
+	    //get data from facebook and decode XML
+	    $page = curl_exec($c);
+	    $pxml= new SimpleXMLElement($page);
+
+	    //close the connection
+	    curl_close($c);
+
+	    $myPosts = $pxml->entry;
+	    $fb_feed_content = "";
+	    
+	    $fb_feed_content .= "<li><a target='_blank' href='".get_option("mm_facebook_page")."'><img src='".get_option('mm_facebook_img_profile_url')."'/></a>".facebookReplaceURLWithHTMLLinks(facebook_TokenTruncate($myPosts->content, get_option('mm_facebook_chars_per_post')), $caption)." <a target='_blank' href='".get_option('mm_facebook_page')."'>...</a></li>";
+	    
+
+			echo "<ul>".$fb_feed_content.$comments."</ul>";
+
+			update_option("mm_facebook_recent_cached", "<ul>".$fb_feed_content.$comments."</ul>");
+			update_option("mm_last_date_cached", date("d/m/y"));
+	  }
+	} else {
+		echo(get_option("mm_facebook_recent_cached"));
+	}
+
+	
+	
 
 }
 
