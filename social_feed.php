@@ -41,6 +41,92 @@ function register_social_feed_page() {
    add_menu_page('Social Feed', 'Social Feed', 'manage_options', 'social_feed/social_feed.php', 'social_feed_settings_page',   plugins_url('social_feed/facebook.png'), '');
 }
 
+add_action( 'admin_init', 'register_social_search_settings' );
+function register_social_search_settings() {
+  $filter_image_name = $_POST["social_feed_filter_image_name"];
+  if ($filter_image_name != "") {
+    $images = tom_get_results("posts", "*", "post_type='attachment' AND post_title LIKE '%$filter_image_name%' AND post_mime_type IN ('image/png', 'image/jpg', 'image/jpeg', 'image/gif')", array("post_date DESC"), "7");
+    echo "<ul id='images'>";
+    foreach ($images as $image) { 
+        ?>
+        <li>
+          <img style='width: 100px; min-height: 100px' src='<?php echo($image->guid); ?>' />
+        </li>
+
+    <?php }
+    echo "</ul>";
+    exit();
+  }
+} 
+
+add_action( 'admin_init', 'register_social_upload_settings' );
+function register_social_upload_settings() {
+  $social_uploadfiles = $_FILES['social_uploadfiles'];
+
+  if (is_array($social_uploadfiles)) {
+
+    foreach ($social_uploadfiles['name'] as $key => $value) {
+
+      // look only for uploded files
+      if ($social_uploadfiles['error'][$key] == 0) {
+
+        $filetmp = $social_uploadfiles['tmp_name'][$key];
+
+        //clean filename and extract extension
+        $filename = $social_uploadfiles['name'][$key];
+
+        // get file info
+        // @fixme: wp checks the file extension....
+        $filetype = wp_check_filetype( basename( $filename ), null );
+        $filetitle = preg_replace('/\.[^.]+$/', '', basename( $filename ) );
+        $filename = $filetitle . '.' . $filetype['ext'];
+        $upload_dir = wp_upload_dir();
+
+        /**
+         * Check if the filename already exist in the directory and rename the
+         * file if necessary
+         */
+        $i = 0;
+        while ( file_exists( $upload_dir['path'] .'/' . $filename ) ) {
+          $filename = $filetitle . '_' . $i . '.' . $filetype['ext'];
+          $i++;
+        }
+        $filedest = $upload_dir['path'] . '/' . $filename;
+
+        /**
+         * Check write permissions
+         */
+        if ( !is_writeable( $upload_dir['path'] ) ) {
+          $this->msg_e('Unable to write to directory %s. Is this directory writable by the server?');
+          return;
+        }
+
+        /**
+         * Save temporary file to uploads dir
+         */
+        if ( !@move_uploaded_file($filetmp, $filedest) ){
+          $this->msg_e("Error, the file $filetmp could not moved to : $filedest ");
+          continue;
+        }
+
+        $attachment = array(
+          'post_mime_type' => $filetype['type'],
+          'post_title' => $filetitle,
+          'post_content' => '',
+          'post_status' => 'inherit',
+        );
+
+        $attach_id = wp_insert_attachment( $attachment, $filedest );
+        $attach_data = wp_generate_attachment_metadata( $attach_id, $filedest );
+        wp_update_attachment_metadata( $attach_id,  $attach_data );
+        preg_match("/\/wp-content(.+)$/", $filedest, $matches, PREG_OFFSET_CAPTURE);
+        tom_update_record_by_id("posts", array("guid" => get_option("siteurl").$matches[0][0]), "ID", $attach_id);
+        echo $filedest;
+      }
+    }   
+  }
+}
+
 //call register settings function
 add_action( 'admin_init', 'register_social_feed_settings' );
 function register_social_feed_settings() {
@@ -63,10 +149,100 @@ function register_social_feed_settings() {
 	register_setting( 'social-feed-group', 'mm_social_css' );
 	register_setting( 'social-feed-group', 'mm_last_date_cached');
 	register_setting( 'social-feed-group', 'mm_facebook_recent_cached');
+
+  @check_social_feed_dependencies_are_active(
+    "Social Feed", 
+    array(
+      "Tom M8te" => array("plugin"=>"tom-m8te/tom-m8te.php", "url" => "http://downloads.wordpress.org/plugin/tom-m8te.zip", "version" => "1.1"),
+      "JQuery Colorbox" => array("plugin"=>"jquery-colorbox/jquery-colorbox.php", "url" => "http://downloads.wordpress.org/plugin/jquery-colorbox.zip"))
+  );
 }
 
 function social_feed_settings_page() {
+    wp_enqueue_script('jquery');
+    wp_enqueue_script('jquery-ui-sortable');
+    // wp_enqueue_script('jquery-ui-resizable');
+    wp_enqueue_style('thickbox');
+    wp_enqueue_script('media-upload');
+    wp_enqueue_script('thickbox');
+    wp_register_script('my-upload', WP_PLUGIN_URL, array('jquery','media-upload','thickbox'));
+    wp_enqueue_script('my-upload');
+    wp_register_script( 'my-jquery-colorbox', get_option("siteurl")."/wp-content/plugins/jquery-colorbox/js/jquery.colorbox-min.js" );
+    wp_enqueue_script('my-jquery-colorbox');
+    wp_register_script( 'my-form-script', plugins_url('js/jquery.form.js', __FILE__) );
+    wp_enqueue_script('my-form-script');
+    wp_register_script( 'my-social-feed', plugins_url('js/social_feed.js', __FILE__) );
+    wp_enqueue_script('my-social-feed');
+    wp_register_style( 'my-jquery-colorbox-style',get_option("siteurl")."/wp-content/plugins/jquery-colorbox/themes/theme1/colorbox.css");
+    wp_enqueue_style('my-jquery-colorbox-style');
 ?>
+
+<style>
+  #upload_image_container, #images {display: none;}
+  #cboxWrapper #upload_image_container, #cboxWrapper #images {display: block;}
+  ul#images li {float: left; margin-right: 5px;}
+</style>
+
+<script language="javascript">
+	jQuery(function() {
+	  jQuery("#social_feed_filter_image_name").live("keydown", function() {
+	      if (jQuery(this).val().length < 2) {
+	        jQuery("#images_container").html("");
+	      } else {
+	        jQuery.post("<?php echo(get_option('siteurl')); ?>/wp-admin/admin.php?page=social_feed/social_feed.php", { social_feed_filter_image_name: jQuery(this).val() },
+	            function(data) {
+	              jQuery("#images_container").html(data);
+	            }
+	        );
+	      }
+	  });
+	});
+</script>
+
+<div id="upload_image_container">
+  <div class="wrap">
+<h2>Social Feed</h2>
+<div class="postbox " style="display: block; ">
+<div class="inside">
+  <table class="form-table">
+    <tbody>
+
+      <tr valign="top">
+        <th scope="row">
+          <label for="filter_image_name">Upload</label>
+        </th>
+        <td>
+          <form name="social_uploadfile" id="social_uploadfile_form" method="POST" enctype="multipart/form-data" action="#social_uploadfile" accept-charset="utf-8" >
+            <input type="file" name="social_uploadfiles[]" id="social_uploadfiles" size="35" class="social_uploadfiles" />
+            <input class="button-primary" type="submit" name="social_uploadfile" id="social_uploadfile_btn" value="Upload"  />
+          </form>
+          <div class="progress">
+              <div class="bar"></div >
+              <div class="percent">0%</div >
+          </div>
+        </td>
+      </tr>
+
+      <tr valign="top">
+        <th scope="row">
+          <label for="social_feed_filter_image_name">Search</label>
+        </th>
+        <td>
+          <input type="text" id="social_feed_filter_image_name" name="social_feed_filter_image_name" value="" />
+        </td>
+      </tr>
+      <tr>
+        <td></td>
+        <td><div id="images_container"></div></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+</div>
+</div>
+</div>
+
+
 <div class="wrap">
 <h2>Social Feed</h2>
 <div class="postbox " style="display: block; ">
@@ -118,6 +294,7 @@ function social_feed_settings_page() {
 				</th>
 				<td>
 					<input type="text" name="mm_facebook_img_profile_url" value="<?php echo get_option('mm_facebook_img_profile_url'); ?>" />
+					<input type="button" class="image-uploader" value="Upload" />
 				</td>
 			</tr>
 
@@ -159,8 +336,6 @@ function social_feed_settings_page() {
 
 		</tbody>
 	</table>
-
-
 
 <h3>Twitter</h3>
   <table class="form-table">
@@ -402,7 +577,6 @@ function facebook_content() {
 		return $fb_feed_content;
 }
 
-
 function mytheme_content_filter( $content ) {
 	if (strpos($content, "<!-- Social Media -->") > 0) {
 		$fb_feed_content = facebook_content();
@@ -418,8 +592,6 @@ function mytheme_content_filter( $content ) {
 }
 add_filter( 'the_content', 'mytheme_content_filter' );
 
-
-
 function most_recent_blog_feed() {
 		// RSS Feed
 		$rss_url = get_option('mm_blog_rss_feed_url');
@@ -434,7 +606,6 @@ function most_recent_blog_feed() {
 			return "";
 		}
 }
-
 
 function most_recent_facebook_feed() {
 
@@ -535,7 +706,6 @@ function most_recent_facebook_feed() {
 	    
 	    $fb_feed_content .= "<li><a target='_blank' href='".get_option("mm_facebook_page")."'><img src='".get_option('mm_facebook_img_profile_url')."'/></a>".facebookReplaceURLWithHTMLLinks(facebook_TokenTruncate($myPosts->content, get_option('mm_facebook_chars_per_post')), $caption)." <a target='_blank' href='".get_option('mm_facebook_page')."'>...</a></li>";
 	    
-
 			echo "<ul>".$fb_feed_content.$comments."</ul>";
 
 			update_option("mm_facebook_recent_cached", "<ul>".$fb_feed_content.$comments."</ul>");
@@ -544,9 +714,6 @@ function most_recent_facebook_feed() {
 	} else {
 		echo(get_option("mm_facebook_recent_cached"));
 	}
-
-	
-	
 
 }
 
@@ -628,12 +795,47 @@ function facebookReplaceURLWithHTMLLinks($text, $caption) {
 	return $text;
 }
 
-
-// TODO: Need to create css file for social feed and link header.php to point to it.
 function social_feed_style() {
-	echo "<link rel='stylesheet' type='text/css' href='".get_option('siteurl')."/wp-content/plugins/social_feed/social.php' />";
+	wp_register_style( 'my-social-feed-style', plugins_url('social.php', __FILE__) );
+  wp_enqueue_style('my-social-feed-style');
 }
 
 add_filter('wp_head', 'social_feed_style');
+
+function check_social_feed_dependencies_are_active($plugin_name, $dependencies) {
+  $msg_content = "<div class='updated'><p>Sorry for the confusion but you must install and activate ";
+  $plugins_array = array();
+  $upgrades_array = array();
+  define('PLUGINPATH', ABSPATH.'wp-content/plugins');
+  foreach ($dependencies as $key => $value) {
+    $plugin = get_plugin_data(PLUGINPATH."/".$value["plugin"],true,true);
+    $url = $value["url"];
+    if (!is_plugin_active($value["plugin"])) {
+      array_push($plugins_array, $key);
+    } else {
+      if (isset($value["version"]) && str_replace(".", "", $plugin["Version"]) < str_replace(".", "", $value["version"])) {
+        array_push($upgrades_array, $key);
+      }
+    }
+  }
+  $msg_content .= implode(", ", $plugins_array) . " before you can use $plugin_name. Please go to Plugins/Add New and search/install the following plugin(s): ";
+  $download_plugins_array = array();
+  foreach ($dependencies as $key => $value) {
+    if (!is_plugin_active($value["plugin"])) {
+      $url = $value["url"];
+      array_push($download_plugins_array, $key);
+    }
+  }
+  $msg_content .= implode(", ", $download_plugins_array)."</p></div>";
+  if (count($plugins_array) > 0) {
+    deactivate_plugins( __FILE__, true);
+    echo($msg_content);
+  } 
+
+  if (count($upgrades_array) > 0) {
+    deactivate_plugins( __FILE__,true);
+    echo "<div class='updated'><p>$plugin_name requires the following plugins to be updated: ".implode(", ", $upgrades_array).".</p></div>";
+  }
+}
 
 ?>
