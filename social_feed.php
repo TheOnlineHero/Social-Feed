@@ -160,13 +160,6 @@ function register_social_feed_settings() {
 
 function social_feed_settings_page() {
     wp_enqueue_script('jquery');
-    wp_enqueue_script('jquery-ui-sortable');
-    // wp_enqueue_script('jquery-ui-resizable');
-    wp_enqueue_style('thickbox');
-    wp_enqueue_script('media-upload');
-    wp_enqueue_script('thickbox');
-    wp_register_script('my-upload', WP_PLUGIN_URL, array('jquery','media-upload','thickbox'));
-    wp_enqueue_script('my-upload');
     wp_register_script( 'my-jquery-colorbox', get_option("siteurl")."/wp-content/plugins/jquery-colorbox/js/jquery.colorbox-min.js" );
     wp_enqueue_script('my-jquery-colorbox');
     wp_register_script( 'my-form-script', plugins_url('js/jquery.form.js', __FILE__) );
